@@ -54,7 +54,7 @@ function formatTime(ms) {
 
 // Submit a score
 app.post('/api/submit', wrap(async (req, res) => {
-  const { name, timeMs, token } = req.body;
+  const { name, timeMs, greenClicks } = req.body;
   if (!name || typeof timeMs !== 'number' || timeMs < 0) {
     return res.status(400).json({ error: 'Invalid submission' });
   }
@@ -65,6 +65,7 @@ app.post('/api/submit', wrap(async (req, res) => {
     name: trimmed,
     timeMs,
     timeFormatted: formatTime(timeMs),
+    greenClicks: typeof greenClicks === 'number' ? Math.max(0, Math.floor(greenClicks)) : 0,
     submittedAt: new Date(),
     ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
   };
@@ -84,15 +85,15 @@ app.get('/api/leaderboard', wrap(async (req, res) => {
   let scores;
   if (db) {
     scores = await db.collection('scores')
-      .find({}, { projection: { _id: 0, name: 1, timeMs: 1, timeFormatted: 1, submittedAt: 1 } })
-      .sort({ timeMs: -1 }) // highest time = resisted longest
+      .find({}, { projection: { _id: 0, name: 1, timeMs: 1, timeFormatted: 1, greenClicks: 1, submittedAt: 1 } })
+      .sort({ timeMs: -1 })
       .limit(100)
       .toArray();
   } else {
     scores = [..._mem]
       .sort((a, b) => b.timeMs - a.timeMs)
       .slice(0, 100)
-      .map(({ name, timeMs, timeFormatted, submittedAt }) => ({ name, timeMs, timeFormatted, submittedAt }));
+      .map(({ name, timeMs, timeFormatted, greenClicks, submittedAt }) => ({ name, timeMs, timeFormatted, greenClicks, submittedAt }));
   }
   res.json({ scores });
 }));

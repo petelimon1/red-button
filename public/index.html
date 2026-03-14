@@ -12,8 +12,19 @@
 <div id="game-screen" class="screen hidden">
   <div class="game-wrap">
     <div id="timer" class="timer">0.00s</div>
-    <button id="red-btn" class="red-button" onclick="clickButton()"></button>
-    <p class="warning">You are not allowed to click the red button.</p>
+
+    <div class="buttons-row">
+      <div class="btn-col">
+        <button id="green-btn" class="green-button" onclick="clickGreen()"></button>
+        <p class="permission">You are allowed to click the green button.</p>
+        <div class="green-counter"><span id="green-count">0</span> clicks</div>
+      </div>
+
+      <div class="btn-col">
+        <button id="red-btn" class="red-button" onclick="clickButton()"></button>
+        <p class="warning">You are not allowed to click the red button.</p>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -24,6 +35,9 @@
     <div class="gameover-reason" id="gameover-reason">You clicked the button.</div>
     <div class="gameover-score">
       You lasted <span id="final-time" class="highlight">0s</span>
+    </div>
+    <div class="gameover-green">
+      🟢 Green button clicks: <span id="final-green" class="highlight-green">0</span>
     </div>
 
     <div id="submit-section">
@@ -58,6 +72,8 @@ const PLAYED_KEY  = 'rb_played';  // localStorage: already played flag
 let timerInterval = null;
 let startTime = null;
 let finalMs = null;
+let greenClicks = 0;
+let finalGreen = 0;
 let submitted = false;
 
 /* ── Init ──────────────────────────────────────────────────────────── */
@@ -90,16 +106,24 @@ document.addEventListener('visibilitychange', () => {
 /* ── Game functions ────────────────────────────────────────────────── */
 function startGame() {
   startTime = Date.now();
+  greenClicks = 0;
   sessionStorage.setItem(SESSION_KEY, startTime);
 
   show('game-screen');
   hide('gameover-screen');
   hide('leaderboard-section');
+  document.getElementById('green-count').textContent = '0';
 
   timerInterval = setInterval(() => {
     const elapsed = Date.now() - startTime;
     document.getElementById('timer').textContent = formatTime(elapsed);
   }, 50);
+}
+
+function clickGreen() {
+  if (startTime === null) return;
+  greenClicks++;
+  document.getElementById('green-count').textContent = greenClicks;
 }
 
 function clickButton() {
@@ -109,10 +133,10 @@ function clickButton() {
 }
 
 function endGame(ms, reason, skipSubmit = false) {
-  // Stop timer
   clearInterval(timerInterval);
   startTime = null;
   finalMs = ms;
+  finalGreen = greenClicks;
   sessionStorage.removeItem(SESSION_KEY);
 
   hide('game-screen');
@@ -121,6 +145,7 @@ function endGame(ms, reason, skipSubmit = false) {
 
   document.getElementById('gameover-reason').textContent = reason;
   document.getElementById('final-time').textContent = formatTime(ms);
+  document.getElementById('final-green').textContent = finalGreen;
 
   if (skipSubmit) {
     hide('submit-section');
@@ -150,13 +175,13 @@ async function submitScore() {
     const res = await fetch('/api/submit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, timeMs: finalMs }),
+      body: JSON.stringify({ name, timeMs: finalMs, greenClicks: finalGreen }),
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Submit failed');
 
     // Mark as played
-    localStorage.setItem(PLAYED_KEY, JSON.stringify({ timeMs: finalMs, name }));
+    localStorage.setItem(PLAYED_KEY, JSON.stringify({ timeMs: finalMs, greenClicks: finalGreen, name }));
 
     hide('submit-section');
     show('already-submitted');
@@ -170,11 +195,12 @@ async function submitScore() {
 }
 
 function playAgain() {
-  // Clear played flag and session, start fresh
   localStorage.removeItem(PLAYED_KEY);
   sessionStorage.removeItem(SESSION_KEY);
   submitted = false;
   finalMs = null;
+  finalGreen = 0;
+  greenClicks = 0;
   hide('gameover-screen');
   hide('leaderboard-section');
   startGame();
@@ -194,6 +220,7 @@ async function loadLeaderboard() {
       <div class="lb-row ${i === 0 ? 'lb-first' : ''}">
         <span class="lb-rank">${medal(i)}</span>
         <span class="lb-name">${escHtml(s.name)}</span>
+        <span class="lb-green">🟢 ${s.greenClicks || 0}</span>
         <span class="lb-time">${s.timeFormatted}</span>
       </div>`).join('');
   } catch {

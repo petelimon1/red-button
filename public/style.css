@@ -2,14 +2,16 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --red:     #e53935;
-  --red-glow:#ff1744;
-  --bg:      #0a0a0a;
-  --surface: #141414;
-  --border:  #2a2a2a;
-  --text:    #f0f0f0;
-  --muted:   #888;
-  --gold:    #ffd700;
+  --red:      #e53935;
+  --red-glow: #ff1744;
+  --green:    #43a047;
+  --green-glow:#00e676;
+  --bg:       #0a0a0a;
+  --surface:  #141414;
+  --border:   #2a2a2a;
+  --text:     #f0f0f0;
+  --muted:    #888;
+  --gold:     #ffd700;
 }
 
 html, body {
@@ -37,6 +39,22 @@ html, body {
   align-items: center;
   gap: 32px;
   padding: 40px 20px;
+}
+
+.buttons-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  gap: clamp(32px, 8vw, 80px);
+  flex-wrap: wrap;
+}
+
+.btn-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
 }
 
 .timer {
@@ -92,11 +110,74 @@ html, body {
 }
 
 .warning {
-  font-size: clamp(0.85rem, 2.5vw, 1rem);
+  font-size: clamp(0.8rem, 2.5vw, 0.95rem);
   color: var(--muted);
   letter-spacing: 0.5px;
   text-align: center;
-  max-width: 280px;
+  max-width: 220px;
+}
+
+.permission {
+  font-size: clamp(0.8rem, 2.5vw, 0.95rem);
+  color: #66bb6a;
+  letter-spacing: 0.5px;
+  text-align: center;
+  max-width: 220px;
+}
+
+.green-counter {
+  font-size: 1.4rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--green-glow);
+  text-align: center;
+}
+
+.green-counter span {
+  font-size: 2rem;
+}
+
+/* ── Green button ──────────────────────────────────────────────────── */
+.green-button {
+  width: clamp(120px, 28vw, 180px);
+  height: clamp(120px, 28vw, 180px);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #69f0ae, var(--green) 60%, #1b5e20);
+  border: none;
+  cursor: pointer;
+  box-shadow:
+    0 0 30px rgba(67,160,71,0.4),
+    0 0 60px rgba(67,160,71,0.15),
+    inset 0 -6px 16px rgba(0,0,0,0.4);
+  transition: transform 0.06s ease, box-shadow 0.06s ease;
+  position: relative;
+}
+
+.green-button::after {
+  content: '';
+  position: absolute;
+  top: 18%;
+  left: 22%;
+  width: 28%;
+  height: 18%;
+  background: rgba(255,255,255,0.25);
+  border-radius: 50%;
+  transform: rotate(-30deg);
+}
+
+.green-button:hover {
+  box-shadow:
+    0 0 50px rgba(0,230,118,0.6),
+    0 0 100px rgba(0,230,118,0.2),
+    inset 0 -6px 16px rgba(0,0,0,0.4);
+  transform: scale(1.04);
+}
+
+.green-button:active {
+  transform: scale(0.94);
+  box-shadow:
+    0 0 15px rgba(67,160,71,0.3),
+    inset 0 4px 16px rgba(0,0,0,0.5);
 }
 
 /* ── Game Over screen ──────────────────────────────────────────────── */
@@ -134,6 +215,18 @@ html, body {
   color: var(--gold);
   font-weight: 700;
   font-size: 1.6rem;
+}
+
+.gameover-green {
+  font-size: 1.1rem;
+  color: var(--muted);
+  margin-top: -8px;
+}
+
+.highlight-green {
+  color: var(--green-glow);
+  font-weight: 700;
+  font-size: 1.3rem;
 }
 
 /* ── Submit form ───────────────────────────────────────────────────── */
@@ -260,6 +353,14 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.lb-green {
+  font-size: 0.85rem;
+  color: var(--green-glow);
+  white-space: nowrap;
+  min-width: 60px;
+  text-align: right;
 }
 
 .lb-time {
