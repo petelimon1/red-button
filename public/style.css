@@ -232,8 +232,8 @@ html, body {
 /* ── Submit form ───────────────────────────────────────────────────── */
 .submit-label {
   font-size: 0.9rem;
-  color: var(--muted);
-  margin-bottom: -8px;
+  color: var(--text);
+  margin-bottom: 6px;
 }
 
 .submit-row {
