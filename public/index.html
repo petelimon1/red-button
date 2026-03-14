@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Don't Click It</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ── GAME SCREEN ─────────────────────────────────────────────────── -->
+<div id="game-screen" class="screen hidden">
+  <div class="game-wrap">
+    <div id="timer" class="timer">0.00s</div>
+    <button id="red-btn" class="red-button" onclick="clickButton()"></button>
+    <p class="warning">You are not allowed to click the red button.</p>
+  </div>
+</div>
+
+<!-- ── GAME OVER SCREEN ────────────────────────────────────────────── -->
+<div id="gameover-screen" class="screen hidden">
+  <div class="gameover-wrap">
+    <div class="gameover-title">GAME OVER</div>
+    <div class="gameover-reason" id="gameover-reason">You clicked the button.</div>
+    <div class="gameover-score">
+      You lasted <span id="final-time" class="highlight">0s</span>
+    </div>
+
+    <div id="submit-section">
+      <p class="submit-label">Enter your name for the leaderboard:</p>
+      <div class="submit-row">
+        <input id="name-input" class="name-input" type="text" maxlength="40" placeholder="Your name" />
+        <button class="btn-submit" onclick="submitScore()">Submit</button>
+      </div>
+      <p id="submit-error" class="submit-error hidden"></p>
+    </div>
+
+    <div id="already-submitted" class="hidden">
+      <p class="already-text">Score submitted ✓</p>
+    </div>
+
+    <button class="btn-play-again" onclick="playAgain()">↩ Play Again</button>
+  </div>
+</div>
+
+<!-- ── LEADERBOARD ─────────────────────────────────────────────────── -->
+<div id="leaderboard-section" class="leaderboard-section hidden">
+  <h2 class="lb-title">🏆 Hall of Patience</h2>
+  <p class="lb-subtitle">Longest time resisted</p>
+  <div id="lb-list" class="lb-list"></div>
+</div>
+
+<script>
+/* ── State ─────────────────────────────────────────────────────────── */
+const SESSION_KEY = 'rb_start';   // sessionStorage: game start time
+const PLAYED_KEY  = 'rb_played';  // localStorage: already played flag
+
+let timerInterval = null;
+let startTime = null;
+let finalMs = null;
+let submitted = false;
+
+/* ── Init ──────────────────────────────────────────────────────────── */
+window.addEventListener('load', () => {
+  const existingStart = sessionStorage.getItem(SESSION_KEY);
+  const alreadyPlayed = localStorage.getItem(PLAYED_KEY);
+
+  if (existingStart) {
+    // They refreshed — game over
+    const elapsed = Date.now() - parseInt(existingStart, 10);
+    endGame(elapsed, 'You refreshed the page.');
+  } else if (alreadyPlayed) {
+    // They've played before — show their last score + leaderboard
+    const data = JSON.parse(alreadyPlayed);
+    endGame(data.timeMs, 'You have already played.', true);
+  } else {
+    // Fresh game
+    startGame();
+  }
+});
+
+/* ── Page visibility — switching tabs counts as clicking ─────────── */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && startTime !== null) {
+    const elapsed = Date.now() - startTime;
+    endGame(elapsed, 'You looked away.');
+  }
+});
+
+/* ── Game functions ────────────────────────────────────────────────── */
+function startGame() {
+  startTime = Date.now();
+  sessionStorage.setItem(SESSION_KEY, startTime);
+
+  show('game-screen');
+  hide('gameover-screen');
+  hide('leaderboard-section');
+
+  timerInterval = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    document.getElementById('timer').textContent = formatTime(elapsed);
+  }, 50);
+}
+
+function clickButton() {
+  if (startTime === null) return;
+  const elapsed = Date.now() - startTime;
+  endGame(elapsed, 'You clicked the button.');
+}
+
+function endGame(ms, reason, skipSubmit = false) {
+  // Stop timer
+  clearInterval(timerInterval);
+  startTime = null;
+  finalMs = ms;
+  sessionStorage.removeItem(SESSION_KEY);
+
+  hide('game-screen');
+  show('gameover-screen');
+  show('leaderboard-section');
+
+  document.getElementById('gameover-reason').textContent = reason;
+  document.getElementById('final-time').textContent = formatTime(ms);
+
+  if (skipSubmit) {
+    hide('submit-section');
+    show('already-submitted');
+  } else {
+    show('submit-section');
+    hide('already-submitted');
+  }
+
+  loadLeaderboard();
+}
+
+async function submitScore() {
+  const nameEl = document.getElementById('name-input');
+  const errEl  = document.getElementById('submit-error');
+  const name = nameEl.value.trim();
+
+  if (!name) { showError('Please enter your name.'); return; }
+  if (submitted) return;
+
+  submitted = true;
+  const btn = document.querySelector('.btn-submit');
+  btn.disabled = true;
+  btn.textContent = 'Submitting…';
+
+  try {
+    const res = await fetch('/api/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, timeMs: finalMs }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Submit failed');
+
+    // Mark as played
+    localStorage.setItem(PLAYED_KEY, JSON.stringify({ timeMs: finalMs, name }));
+
+    hide('submit-section');
+    show('already-submitted');
+    loadLeaderboard();
+  } catch (e) {
+    submitted = false;
+    btn.disabled = false;
+    btn.textContent = 'Submit';
+    showError(e.message);
+  }
+}
+
+function playAgain() {
+  // Clear played flag and session, start fresh
+  localStorage.removeItem(PLAYED_KEY);
+  sessionStorage.removeItem(SESSION_KEY);
+  submitted = false;
+  finalMs = null;
+  hide('gameover-screen');
+  hide('leaderboard-section');
+  startGame();
+}
+
+/* ── Leaderboard ───────────────────────────────────────────────────── */
+async function loadLeaderboard() {
+  const list = document.getElementById('lb-list');
+  try {
+    const res = await fetch('/api/leaderboard');
+    const { scores } = await res.json();
+    if (!scores.length) {
+      list.innerHTML = '<p class="lb-empty">No scores yet. Be the first!</p>';
+      return;
+    }
+    list.innerHTML = scores.map((s, i) => `
+      <div class="lb-row ${i === 0 ? 'lb-first' : ''}">
+        <span class="lb-rank">${medal(i)}</span>
+        <span class="lb-name">${escHtml(s.name)}</span>
+        <span class="lb-time">${s.timeFormatted}</span>
+      </div>`).join('');
+  } catch {
+    list.innerHTML = '<p class="lb-empty">Could not load leaderboard.</p>';
+  }
+}
+
+/* ── Helpers ───────────────────────────────────────────────────────── */
+function formatTime(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  const centis = Math.floor((ms % 1000) / 10);
+  if (mins > 0) return `${mins}m ${secs}.${String(centis).padStart(2,'0')}s`;
+  return `${secs}.${String(centis).padStart(2,'0')}s`;
+}
+
+function medal(i) {
+  return ['🥇','🥈','🥉'][i] || `${i+1}`;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function show(id) { document.getElementById(id).classList.remove('hidden'); }
+function hide(id) { document.getElementById(id).classList.add('hidden'); }
+function showError(msg) {
+  const el = document.getElementById('submit-error');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+</script>
+</body>
+</html>
