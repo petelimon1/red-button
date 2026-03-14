@@ -98,6 +98,12 @@ app.get('/api/leaderboard', wrap(async (req, res) => {
   res.json({ scores });
 }));
 
+// Mulligan — grant one extra play (add Stripe payment check here later)
+app.post('/api/mulligan', wrap(async (req, res) => {
+  // TODO: verify payment via Stripe before granting
+  res.json({ granted: true });
+}));
+
 // Admin: clear a score by name
 app.post('/api/admin/remove', adminAuth, wrap(async (req, res) => {
   const { name } = req.body;

@@ -12,6 +12,7 @@
 <div id="game-screen" class="screen hidden">
   <div class="game-wrap">
     <div id="timer" class="timer">0.00s</div>
+    <div id="plays-remaining" class="plays-remaining"></div>
 
     <div class="buttons-row">
       <div class="btn-col">
@@ -33,10 +34,11 @@
   <div class="gameover-wrap">
     <div class="gameover-title">GAME OVER</div>
     <div class="gameover-reason" id="gameover-reason">You clicked the button.</div>
-    <div class="gameover-score">
+
+    <div id="lasted-section" class="gameover-score">
       You lasted <span id="final-time" class="highlight">0s</span>
     </div>
-    <div class="gameover-green">
+    <div id="green-row" class="gameover-green">
       🟢 Green button clicks: <span id="final-green" class="highlight-green">0</span>
     </div>
 
@@ -53,7 +55,19 @@
       <p class="already-text">Score submitted ✓</p>
     </div>
 
-    <button class="btn-play-again" onclick="playAgain()">↩ Play Again</button>
+    <!-- Play again (shown when plays remain) -->
+    <div id="play-again-wrap">
+      <button class="btn-play-again" onclick="playAgain()">
+        ↩ Play Again &nbsp;·&nbsp; <span id="plays-left-text"></span>
+      </button>
+    </div>
+
+    <!-- Mulligan upsell (shown when 0 plays left) -->
+    <div id="mulligan-section" class="hidden mulligan-box">
+      <p class="mulligan-out">No free plays left today 🚫</p>
+      <button class="btn-mulligan" onclick="buyMulligan()">🎲 Get a Mulligan — $0.99</button>
+      <p class="mulligan-sub">Come back tomorrow for 3 more free plays.</p>
+    </div>
   </div>
 </div>
 
@@ -65,58 +79,89 @@
 </div>
 
 <script>
-/* ── State ─────────────────────────────────────────────────────────── */
-const SESSION_KEY = 'rb_start';   // sessionStorage: game start time
-const PLAYED_KEY  = 'rb_played';  // localStorage: already played flag
+/* ── Constants ─────────────────────────────────────────────────────── */
+const SESSION_KEY = 'rb_start';  // sessionStorage: game start timestamp
+const PLAYS_KEY   = 'rb_plays';  // localStorage:   { date, count }
+const MAX_PLAYS   = 3;
 
+/* ── State ─────────────────────────────────────────────────────────── */
 let timerInterval = null;
-let startTime = null;
-let finalMs = null;
-let greenClicks = 0;
-let finalGreen = 0;
-let submitted = false;
+let startTime     = null;
+let finalMs       = null;
+let greenClicks   = 0;
+let finalGreen    = 0;
+let submitted     = false;
+
+/* ── Daily plays helpers ────────────────────────────────────────────── */
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getPlays() {
+  try {
+    const d = JSON.parse(localStorage.getItem(PLAYS_KEY));
+    if (d && d.date === todayStr()) return d;
+  } catch {}
+  return { date: todayStr(), count: 0 };
+}
+
+function savePlays(d) {
+  localStorage.setItem(PLAYS_KEY, JSON.stringify(d));
+}
+
+function playsLeft() {
+  return Math.max(0, MAX_PLAYS - getPlays().count);
+}
 
 /* ── Init ──────────────────────────────────────────────────────────── */
 window.addEventListener('load', () => {
   const existingStart = sessionStorage.getItem(SESSION_KEY);
-  const alreadyPlayed = localStorage.getItem(PLAYED_KEY);
 
   if (existingStart) {
-    // They refreshed — game over
+    // Page was refreshed mid-game — count as a loss
     const elapsed = Date.now() - parseInt(existingStart, 10);
     endGame(elapsed, 'You refreshed the page.');
-  } else if (alreadyPlayed) {
-    // They've played before — show their last score + leaderboard
-    const data = JSON.parse(alreadyPlayed);
-    endGame(data.timeMs, 'You have already played.', true);
-  } else {
-    // Fresh game
-    startGame();
+    return;
   }
+
+  if (playsLeft() === 0) {
+    // Out of plays for today
+    endGame(0, "You've used all 3 free plays today.", true);
+    return;
+  }
+
+  startGame();
 });
 
-/* ── Page visibility — switching tabs counts as clicking ─────────── */
+/* ── Tab switch = game over ─────────────────────────────────────────── */
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && startTime !== null) {
-    const elapsed = Date.now() - startTime;
-    endGame(elapsed, 'You looked away.');
+    endGame(Date.now() - startTime, 'You looked away.');
   }
 });
 
-/* ── Game functions ────────────────────────────────────────────────── */
+/* ── Game functions ─────────────────────────────────────────────────── */
 function startGame() {
-  startTime = Date.now();
+  // Count this play before starting
+  const plays = getPlays();
+  plays.count += 1;
+  savePlays(plays);
+
+  startTime   = Date.now();
   greenClicks = 0;
+  submitted   = false;
   sessionStorage.setItem(SESSION_KEY, startTime);
+
+  document.getElementById('green-count').textContent = '0';
+  document.getElementById('plays-remaining').textContent =
+    `Play ${plays.count} of ${MAX_PLAYS}`;
 
   show('game-screen');
   hide('gameover-screen');
   hide('leaderboard-section');
-  document.getElementById('green-count').textContent = '0';
 
   timerInterval = setInterval(() => {
-    const elapsed = Date.now() - startTime;
-    document.getElementById('timer').textContent = formatTime(elapsed);
+    document.getElementById('timer').textContent = formatTime(Date.now() - startTime);
   }, 50);
 }
 
@@ -128,14 +173,13 @@ function clickGreen() {
 
 function clickButton() {
   if (startTime === null) return;
-  const elapsed = Date.now() - startTime;
-  endGame(elapsed, 'You clicked the button.');
+  endGame(Date.now() - startTime, 'You clicked the button.');
 }
 
-function endGame(ms, reason, skipSubmit = false) {
+function endGame(ms, reason, noScore = false) {
   clearInterval(timerInterval);
-  startTime = null;
-  finalMs = ms;
+  startTime  = null;
+  finalMs    = ms;
   finalGreen = greenClicks;
   sessionStorage.removeItem(SESSION_KEY);
 
@@ -144,25 +188,90 @@ function endGame(ms, reason, skipSubmit = false) {
   show('leaderboard-section');
 
   document.getElementById('gameover-reason').textContent = reason;
-  document.getElementById('final-time').textContent = formatTime(ms);
-  document.getElementById('final-green').textContent = finalGreen;
 
-  if (skipSubmit) {
+  if (noScore) {
+    // Out-of-plays startup state — hide score rows
+    hide('lasted-section');
+    hide('green-row');
     hide('submit-section');
-    show('already-submitted');
-  } else {
-    show('submit-section');
     hide('already-submitted');
+  } else {
+    show('lasted-section');
+    show('green-row');
+    document.getElementById('final-time').textContent  = formatTime(ms);
+    document.getElementById('final-green').textContent = finalGreen;
+    if (!submitted) {
+      show('submit-section');
+      hide('already-submitted');
+    }
+  }
+
+  // Play again vs mulligan
+  const left = playsLeft();
+  if (left > 0) {
+    show('play-again-wrap');
+    hide('mulligan-section');
+    document.getElementById('plays-left-text').textContent =
+      left === 1 ? '1 play left today' : `${left} plays left today`;
+  } else {
+    hide('play-again-wrap');
+    show('mulligan-section');
+    // Reset mulligan button in case it was previously clicked
+    const btn = document.querySelector('.btn-mulligan');
+    btn.disabled = false;
+    btn.textContent = '🎲 Get a Mulligan — $0.99';
   }
 
   loadLeaderboard();
 }
 
-async function submitScore() {
-  const nameEl = document.getElementById('name-input');
-  const errEl  = document.getElementById('submit-error');
-  const name = nameEl.value.trim();
+function playAgain() {
+  if (playsLeft() === 0) {
+    hide('play-again-wrap');
+    show('mulligan-section');
+    return;
+  }
+  sessionStorage.removeItem(SESSION_KEY);
+  finalMs    = null;
+  finalGreen = 0;
+  greenClicks = 0;
+  hide('gameover-screen');
+  hide('leaderboard-section');
+  startGame();
+}
 
+async function buyMulligan() {
+  const btn = document.querySelector('.btn-mulligan');
+  btn.disabled = true;
+  btn.textContent = 'Processing…';
+
+  try {
+    const res = await fetch('/api/mulligan', { method: 'POST' });
+    const { granted } = await res.json();
+    if (granted) {
+      // Restore one play and kick off a new game
+      const plays = getPlays();
+      plays.count = Math.max(0, plays.count - 1);
+      savePlays(plays);
+      finalMs    = null;
+      finalGreen = 0;
+      greenClicks = 0;
+      hide('gameover-screen');
+      hide('leaderboard-section');
+      startGame();
+    } else {
+      btn.disabled = false;
+      btn.textContent = '🎲 Get a Mulligan — $0.99';
+    }
+  } catch {
+    btn.disabled = false;
+    btn.textContent = '🎲 Get a Mulligan — $0.99';
+  }
+}
+
+/* ── Score submission ───────────────────────────────────────────────── */
+async function submitScore() {
+  const name = document.getElementById('name-input').value.trim();
   if (!name) { showError('Please enter your name.'); return; }
   if (submitted) return;
 
@@ -180,9 +289,6 @@ async function submitScore() {
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Submit failed');
 
-    // Mark as played
-    localStorage.setItem(PLAYED_KEY, JSON.stringify({ timeMs: finalMs, greenClicks: finalGreen, name }));
-
     hide('submit-section');
     show('already-submitted');
     loadLeaderboard();
@@ -194,19 +300,7 @@ async function submitScore() {
   }
 }
 
-function playAgain() {
-  localStorage.removeItem(PLAYED_KEY);
-  sessionStorage.removeItem(SESSION_KEY);
-  submitted = false;
-  finalMs = null;
-  finalGreen = 0;
-  greenClicks = 0;
-  hide('gameover-screen');
-  hide('leaderboard-section');
-  startGame();
-}
-
-/* ── Leaderboard ───────────────────────────────────────────────────── */
+/* ── Leaderboard ────────────────────────────────────────────────────── */
 async function loadLeaderboard() {
   const list = document.getElementById('lb-list');
   try {
@@ -228,19 +322,17 @@ async function loadLeaderboard() {
   }
 }
 
-/* ── Helpers ───────────────────────────────────────────────────────── */
+/* ── Helpers ────────────────────────────────────────────────────────── */
 function formatTime(ms) {
   const totalSec = Math.floor(ms / 1000);
-  const mins = Math.floor(totalSec / 60);
-  const secs = totalSec % 60;
+  const mins  = Math.floor(totalSec / 60);
+  const secs  = totalSec % 60;
   const centis = Math.floor((ms % 1000) / 10);
   if (mins > 0) return `${mins}m ${secs}.${String(centis).padStart(2,'0')}s`;
   return `${secs}.${String(centis).padStart(2,'0')}s`;
 }
 
-function medal(i) {
-  return ['🥇','🥈','🥉'][i] || `${i+1}`;
-}
+function medal(i) { return ['🥇','🥈','🥉'][i] || `${i+1}`; }
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');

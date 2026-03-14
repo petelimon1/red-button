@@ -297,6 +297,58 @@ html, body {
 
 .btn-play-again:hover { border-color: var(--text); color: var(--text); }
 
+/* ── Plays remaining (game screen) ────────────────────────────────── */
+.plays-remaining {
+  font-size: 0.8rem;
+  color: var(--muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-top: -20px;
+}
+
+/* ── Mulligan upsell ───────────────────────────────────────────────── */
+.mulligan-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 24px;
+  border: 1px solid #444;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.03);
+  width: 100%;
+  max-width: 360px;
+}
+
+.mulligan-out {
+  font-size: 1rem;
+  color: var(--muted);
+}
+
+.btn-mulligan {
+  width: 100%;
+  padding: 13px 24px;
+  background: var(--gold);
+  color: #000;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn-mulligan:hover  { opacity: 0.85; }
+.btn-mulligan:active { opacity: 0.7; }
+.btn-mulligan:disabled { opacity: 0.45; cursor: default; }
+
+.mulligan-sub {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.4;
+}
+
 /* ── Leaderboard ───────────────────────────────────────────────────── */
 .leaderboard-section {
   padding: 40px 20px 60px;
