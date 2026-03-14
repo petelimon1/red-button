@@ -65,7 +65,7 @@
     <!-- Mulligan upsell (shown when 0 plays left) -->
     <div id="mulligan-section" class="hidden mulligan-box">
       <p class="mulligan-out">No free plays left today 🚫</p>
-      <button class="btn-mulligan" onclick="buyMulligan()">🎲 Get a Mulligan — $0.99</button>
+      <button class="btn-mulligan" onclick="buyMulligan()">🎲 Get a Mulligan — $1</button>
       <p class="mulligan-sub">Come back tomorrow for 3 more free plays.</p>
     </div>
   </div>
@@ -219,7 +219,7 @@ function endGame(ms, reason, noScore = false) {
     // Reset mulligan button in case it was previously clicked
     const btn = document.querySelector('.btn-mulligan');
     btn.disabled = false;
-    btn.textContent = '🎲 Get a Mulligan — $0.99';
+    btn.textContent = '🎲 Get a Mulligan — $1';
   }
 
   loadLeaderboard();
@@ -261,11 +261,11 @@ async function buyMulligan() {
       startGame();
     } else {
       btn.disabled = false;
-      btn.textContent = '🎲 Get a Mulligan — $0.99';
+      btn.textContent = '🎲 Get a Mulligan — $1';
     }
   } catch {
     btn.disabled = false;
-    btn.textContent = '🎲 Get a Mulligan — $0.99';
+    btn.textContent = '🎲 Get a Mulligan — $1';
   }
 }
 
