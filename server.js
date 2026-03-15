@@ -59,24 +59,43 @@ const MAX_TIME_MS   = 24 * 60 * 60 * 1000;  // 24 hours — clearly impossible
 const MAX_GREEN     = 100_000;               // 100k green clicks — clearly a bot
 
 /* ── MongoDB ──────────────────────────────────────────────────────────── */
-let _db = null;
+let _client = null;
+let _db     = null;
+
 async function getDb() {
   if (!process.env.MONGODB_URI) return null;
   if (_db) return _db;
   try {
-    const client = new MongoClient(process.env.MONGODB_URI, {
+    _client = new MongoClient(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 5000,
-      connectTimeoutMS: 5000,
-      socketTimeoutMS: 10000,
-      maxIdleTimeMS: 60000,
+      connectTimeoutMS:        5000,
+      maxIdleTimeMS:           55000, // close idle connections before Atlas drops them
+      maxPoolSize:             5,
     });
-    await client.connect();
-    _db = client.db('red_button');
+    await _client.connect();
+    _db = _client.db('red_button');
     console.log('Connected to MongoDB');
   } catch (e) {
+    _client = null;
     console.error('MongoDB failed, using in-memory fallback:', e.message);
   }
   return _db;
+}
+
+// Wrap any DB promise with a hard timeout.
+// If the operation hangs, we reject after `ms` and reset the connection
+// so the next request gets a fresh pool instead of the stale one.
+function dbOp(promise, ms = 8000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => {
+        _db     = null;   // force reconnect on next request
+        _client = null;
+        reject(new Error('Database timeout'));
+      }, ms)
+    ),
+  ]);
 }
 
 /* ── In-memory fallback ───────────────────────────────────────────────── */
@@ -127,7 +146,7 @@ app.post('/api/submit', submitLimiter, wrap(async (req, res) => {
   if (mulliganToken && typeof mulliganToken === 'string') {
     const db = await getDb();
     if (db) {
-      const grant = await db.collection('mulligan_grants').findOne({ token: mulliganToken });
+      const grant = await dbOp(db.collection('mulligan_grants').findOne({ token: mulliganToken }));
       if (grant) hasMulligan = true;
     } else {
       hasMulligan = _mulliganGrants.some(g => g.token === mulliganToken);
@@ -146,7 +165,7 @@ app.post('/api/submit', submitLimiter, wrap(async (req, res) => {
 
   const db = await getDb();
   if (db) {
-    await db.collection('scores').insertOne(entry);
+    await dbOp(db.collection('scores').insertOne(entry));
   } else {
     _mem.push(entry);
   }
@@ -159,7 +178,7 @@ app.get('/api/leaderboard', leaderboardLimiter, wrap(async (req, res) => {
   let scores;
   if (db) {
     // Sort first so $first picks the best-time doc for each player
-    scores = await db.collection('scores').aggregate([
+    scores = await dbOp(db.collection('scores').aggregate([
       { $sort: { timeMs: -1 } },
       { $group: {
         _id: '$name',
@@ -167,13 +186,13 @@ app.get('/api/leaderboard', leaderboardLimiter, wrap(async (req, res) => {
         timeMs:        { $first: '$timeMs' },
         timeFormatted: { $first: '$timeFormatted' },
         greenClicks:   { $first: '$greenClicks' },
-        hasMulligan:   { $max:   '$hasMulligan' },  // true if they EVER bought one
+        hasMulligan:   { $max:   '$hasMulligan' },
         submittedAt:   { $first: '$submittedAt' },
       }},
       { $sort: { timeMs: -1 } },
       { $limit: 100 },
       { $project: { _id: 0 } },
-    ]).toArray();
+    ]).toArray());
   } else {
     // In-memory: best time per name
     const best = {};
@@ -231,7 +250,7 @@ app.post('/api/mulligan/verify', mulliganLimiter, wrap(async (req, res) => {
   // Prevent replaying the same session ID
   const db = await getDb();
   if (db) {
-    const used = await db.collection('mulligan_sessions').findOne({ sessionId });
+    const used = await dbOp(db.collection('mulligan_sessions').findOne({ sessionId }));
     if (used) return res.json({ granted: false, error: 'Session already used' });
   }
 
@@ -243,8 +262,8 @@ app.post('/api/mulligan/verify', mulliganLimiter, wrap(async (req, res) => {
   // Mark session as used and generate a mulligan grant token
   const token = makeToken();
   if (db) {
-    await db.collection('mulligan_sessions').insertOne({ sessionId, usedAt: new Date() });
-    await db.collection('mulligan_grants').insertOne({ token, createdAt: new Date() });
+    await dbOp(db.collection('mulligan_sessions').insertOne({ sessionId, usedAt: new Date() }));
+    await dbOp(db.collection('mulligan_grants').insertOne({ token, createdAt: new Date() }));
   } else {
     _mulliganGrants.push({ token });
   }
@@ -269,7 +288,7 @@ app.post('/api/challenge', challengeLimiter, wrap(async (req, res) => {
   };
   const db = await getDb();
   if (db) {
-    await db.collection('challenges').insertOne(doc);
+    await dbOp(db.collection('challenges').insertOne(doc));
   } else {
     _challenges.push(doc);
   }
@@ -282,10 +301,10 @@ app.get('/api/challenge/:id', wrap(async (req, res) => {
   const db = await getDb();
   let doc;
   if (db) {
-    doc = await db.collection('challenges').findOne(
+    doc = await dbOp(db.collection('challenges').findOne(
       { id },
       { projection: { _id: 0, id: 1, name: 1, timeMs: 1, timeFormatted: 1, greenClicks: 1 } }
-    );
+    ));
   } else {
     doc = _challenges.find(c => c.id === id) || null;
     if (doc) doc = { id: doc.id, name: doc.name, timeMs: doc.timeMs, timeFormatted: doc.timeFormatted, greenClicks: doc.greenClicks };
@@ -302,12 +321,12 @@ app.post('/api/subscribe', wrap(async (req, res) => {
   }
   const db = await getDb();
   if (db) {
-    await db.collection('subscribers').insertOne({
+    await dbOp(db.collection('subscribers').insertOne({
       email: email.trim().slice(0, 200),
       name: name ? String(name).trim().slice(0, 40) : null,
       timeMs: typeof timeMs === 'number' ? timeMs : null,
       createdAt: new Date(),
-    });
+    }));
   }
   res.json({ success: true });
 }));
