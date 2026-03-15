@@ -164,6 +164,25 @@ function playsLeft() {
   return Math.max(0, MAX_PLAYS - getPlays().count);
 }
 
+/* ── Server-side play sync (blocks incognito bypass) ───────────────── */
+// Fetches how many plays this IP has used today and raises the local
+// count to match, so a fresh incognito session can't reset the limit.
+async function syncPlaysWithServer() {
+  try {
+    const res = await fetch('/api/plays');
+    if (!res.ok) return;
+    const { used } = await res.json();
+    if (typeof used !== 'number') return;
+    const plays = getPlays();
+    if (used > plays.count) {
+      plays.count = used;
+      savePlays(plays);
+    }
+  } catch {
+    // Network error — silently fall back to localStorage
+  }
+}
+
 /* ── Init ──────────────────────────────────────────────────────────── */
 window.addEventListener('load', async () => {
   const params = new URLSearchParams(window.location.search);
@@ -182,6 +201,9 @@ window.addEventListener('load', async () => {
     window.history.replaceState({}, '', '/');
     await loadChallengeTarget(cid);
   }
+
+  // Sync with server before checking plays (handles incognito fresh localStorage)
+  await syncPlaysWithServer();
 
   const existingStart = sessionStorage.getItem(SESSION_KEY);
   if (existingStart) {
@@ -262,8 +284,34 @@ document.addEventListener('visibilitychange', () => {
 });
 
 /* ── Game functions ─────────────────────────────────────────────────── */
-function startGame() {
-  // Count this play before starting
+async function startGame() {
+  // Ask server to record this play. If it says the IP is out of plays,
+  // show game over. Fail open on network errors so bad connectivity
+  // never blocks a legitimate player.
+  const mulliganToken = localStorage.getItem(MULLIGAN_TOKEN_KEY) || undefined;
+  try {
+    const ctrl = new AbortController();
+    const tid  = setTimeout(() => ctrl.abort(), 3000);
+    const res  = await fetch('/api/plays', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ mulliganToken }),
+      signal:  ctrl.signal,
+    });
+    clearTimeout(tid);
+    const data = await res.json();
+    if (data.allowed === false) {
+      const plays = getPlays();
+      plays.count = MAX_PLAYS;  // sync local so UI reflects reality
+      savePlays(plays);
+      endGame(0, "You've used all 3 free plays today.", true);
+      return;
+    }
+  } catch {
+    // Timeout or network error — fall back to localStorage-only check
+  }
+
+  // Count this play locally
   const plays = getPlays();
   plays.count += 1;
   savePlays(plays);

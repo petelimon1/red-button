@@ -57,6 +57,7 @@ const challengeLimiter = rateLimit({
 /* ── Score validation constants ───────────────────────────────────────── */
 const MAX_TIME_MS   = 24 * 60 * 60 * 1000;  // 24 hours — clearly impossible
 const MAX_GREEN     = 100_000;               // 100k green clicks — clearly a bot
+const MAX_PLAYS     = 3;                     // free plays per day per IP (must match client)
 
 /* ── MongoDB ──────────────────────────────────────────────────────────── */
 let _client = null;
@@ -109,6 +110,17 @@ let _mulliganGrants = [];
 /* ── Helpers ──────────────────────────────────────────────────────────── */
 const wrap = fn => (req, res, next) => fn(req, res, next).catch(next);
 
+// Cloudflare sets CF-Connecting-IP to the real client IP.
+// Fall back to x-forwarded-for (first entry) or the raw socket address.
+function ipOf(req) {
+  return (
+    req.headers['cf-connecting-ip'] ||
+    (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+    req.socket.remoteAddress ||
+    'unknown'
+  );
+}
+
 function adminAuth(req, res, next) {
   const pw = req.body?.password || req.headers['x-admin-password'];
   if (pw !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Wrong password' });
@@ -128,6 +140,54 @@ function makeId()    { return randomBytes(5).toString('hex'); }
 function makeToken() { return randomBytes(16).toString('hex'); }
 
 /* ── Routes ───────────────────────────────────────────────────────────── */
+
+// GET /api/plays — how many free plays has this IP used today?
+app.get('/api/plays', leaderboardLimiter, wrap(async (req, res) => {
+  const ip   = ipOf(req);
+  const date = new Date().toISOString().slice(0, 10);
+  const db   = await getDb();
+  if (db) {
+    const record = await dbOp(db.collection('daily_plays').findOne({ ip, date }));
+    const used   = record?.count || 0;
+    res.json({ used, left: Math.max(0, MAX_PLAYS - used) });
+  } else {
+    res.json({ used: 0, left: MAX_PLAYS }); // no DB: always allow
+  }
+}));
+
+// POST /api/plays — record a play start; returns { allowed, left }
+// Mulligan token bypasses the daily IP limit (paid extra play).
+app.post('/api/plays', submitLimiter, wrap(async (req, res) => {
+  const ip   = ipOf(req);
+  const date = new Date().toISOString().slice(0, 10);
+  const { mulliganToken } = req.body || {};
+  const db = await getDb();
+
+  if (!db) {
+    return res.json({ allowed: true, left: MAX_PLAYS }); // no DB: always allow
+  }
+
+  // Valid mulligan token overrides the daily limit
+  if (mulliganToken && typeof mulliganToken === 'string') {
+    const grant = await dbOp(db.collection('mulligan_grants').findOne({ token: mulliganToken }));
+    if (grant) return res.json({ allowed: true, left: 0 });
+  }
+
+  const record = await dbOp(db.collection('daily_plays').findOne({ ip, date }));
+  const used   = record?.count || 0;
+
+  if (used >= MAX_PLAYS) {
+    return res.status(403).json({ allowed: false, left: 0 });
+  }
+
+  await dbOp(db.collection('daily_plays').updateOne(
+    { ip, date },
+    { $inc: { count: 1 } },
+    { upsert: true }
+  ));
+
+  res.json({ allowed: true, left: MAX_PLAYS - used - 1 });
+}));
 
 // Submit a score
 app.post('/api/submit', submitLimiter, wrap(async (req, res) => {
@@ -163,7 +223,7 @@ app.post('/api/submit', submitLimiter, wrap(async (req, res) => {
     greenClicks: typeof greenClicks === 'number' ? Math.max(0, Math.floor(greenClicks)) : 0,
     hasMulligan,
     submittedAt: new Date(),
-    ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+    ip: ipOf(req),
   };
 
   const db = await getDb();
