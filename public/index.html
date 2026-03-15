@@ -5,6 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Don't Click It</title>
   <link rel="stylesheet" href="style.css">
+
+  <!-- Open Graph -->
+  <meta property="og:title"       content="Don't Click It" />
+  <meta property="og:description" content="How long can you resist the red button? 3 free plays per day." />
+  <meta property="og:image"       content="https://youarenotallowedtoclicktheredbutton.com/og-image.svg" />
+  <meta property="og:url"         content="https://youarenotallowedtoclicktheredbutton.com" />
+  <meta property="og:type"        content="website" />
+  <!-- Twitter / X -->
+  <meta name="twitter:card"        content="summary_large_image" />
+  <meta name="twitter:title"       content="Don't Click It" />
+  <meta name="twitter:description" content="How long can you resist the red button? 3 free plays per day." />
+  <meta name="twitter:image"       content="https://youarenotallowedtoclicktheredbutton.com/og-image.svg" />
 </head>
 <body>
 
@@ -41,6 +53,8 @@
     <div id="green-row" class="gameover-green">
       🟢 Green button clicks: <span id="final-green" class="highlight-green">0</span>
     </div>
+
+    <button id="share-btn" class="btn-share hidden" onclick="shareScore()">🔴 Share your score</button>
 
     <div id="submit-section">
       <p class="submit-label">Enter your name for the leaderboard:</p>
@@ -235,11 +249,13 @@ function endGame(ms, reason, noScore = false) {
     // Out-of-plays startup state — hide score rows
     hide('lasted-section');
     hide('green-row');
+    hide('share-btn');
     hide('submit-section');
     hide('already-submitted');
   } else {
     show('lasted-section');
     show('green-row');
+    show('share-btn');
     document.getElementById('final-time').textContent  = formatTime(ms);
     document.getElementById('final-green').textContent = finalGreen;
     if (!submitted) {
@@ -328,6 +344,13 @@ async function submitScore() {
     btn.textContent = 'Submit';
     showError(e.message);
   }
+}
+
+/* ── Share ──────────────────────────────────────────────────────────── */
+function shareScore() {
+  const text = `I lasted ${formatTime(finalMs)} without clicking the red button. Can you beat me? 🔴\nyouarenotallowedtoclicktheredbutton.com`;
+  const url  = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+  window.open(url, '_blank', 'width=600,height=400,noopener,noreferrer');
 }
 
 /* ── Leaderboard ────────────────────────────────────────────────────── */

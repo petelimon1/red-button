@@ -306,6 +306,22 @@ html, body {
   margin-top: -20px;
 }
 
+/* ── Share button ──────────────────────────────────────────────────── */
+.btn-share {
+  padding: 10px 24px;
+  background: transparent;
+  border: 1px solid var(--red);
+  border-radius: 8px;
+  color: var(--red);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  letter-spacing: 0.3px;
+}
+
+.btn-share:hover { background: var(--red); color: #fff; }
+
 /* ── Mulligan upsell ───────────────────────────────────────────────── */
 .mulligan-box {
   display: flex;
