@@ -30,7 +30,7 @@
 
     <div class="buttons-row">
       <div class="btn-col">
-        <button id="green-btn" class="green-button" onclick="clickGreen()"></button>
+        <button id="green-btn" class="green-button"></button>
         <p class="permission">You are allowed to click the green button.</p>
         <div class="green-counter"><span id="green-count">0</span> clicks</div>
       </div>
@@ -233,6 +233,22 @@ function clickGreen() {
   greenClicks++;
   document.getElementById('green-count').textContent = greenClicks;
 }
+
+// Wire green button: touchstart for mobile (no delay), click for desktop
+// The `registered` flag prevents touchstart + click both firing on the same tap
+(function () {
+  const btn = document.getElementById('green-btn');
+  let touchFired = false;
+  btn.addEventListener('touchstart', (e) => {
+    e.preventDefault(); // stops zoom AND the follow-up click event
+    touchFired = true;
+    clickGreen();
+  }, { passive: false });
+  btn.addEventListener('click', () => {
+    if (touchFired) { touchFired = false; return; } // already handled by touchstart
+    clickGreen();
+  });
+}());
 
 function clickButton() {
   if (startTime === null) return;

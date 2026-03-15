@@ -151,6 +151,8 @@ html, body {
     inset 0 -6px 16px rgba(0,0,0,0.4);
   transition: transform 0.06s ease, box-shadow 0.06s ease;
   position: relative;
+  touch-action: manipulation; /* prevents double-tap zoom on mobile */
+  -webkit-tap-highlight-color: transparent;
 }
 
 .green-button::after {
