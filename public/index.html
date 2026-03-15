@@ -114,9 +114,17 @@ function playsLeft() {
 }
 
 /* ── Init ──────────────────────────────────────────────────────────── */
-window.addEventListener('load', () => {
-  const existingStart = sessionStorage.getItem(SESSION_KEY);
+window.addEventListener('load', async () => {
+  // Returning from Stripe checkout?
+  const params    = new URLSearchParams(window.location.search);
+  const sessionId = params.get('mulligan');
+  if (sessionId) {
+    window.history.replaceState({}, '', '/');
+    await handleMulliganReturn(sessionId);
+    return;
+  }
 
+  const existingStart = sessionStorage.getItem(SESSION_KEY);
   if (existingStart) {
     // Page was refreshed mid-game — count as a loss
     const elapsed = Date.now() - parseInt(existingStart, 10);
@@ -132,6 +140,40 @@ window.addEventListener('load', () => {
 
   startGame();
 });
+
+async function handleMulliganReturn(sessionId) {
+  show('gameover-screen');
+  document.querySelector('.gameover-title').textContent  = '⏳';
+  document.getElementById('gameover-reason').textContent = 'Verifying payment…';
+  hide('lasted-section'); hide('green-row');
+  hide('submit-section'); hide('already-submitted');
+  hide('play-again-wrap'); hide('mulligan-section');
+
+  try {
+    const res  = await fetch('/api/mulligan/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    const { granted } = await res.json();
+
+    if (granted) {
+      const plays = getPlays();
+      plays.count = Math.max(0, plays.count - 1);
+      savePlays(plays);
+      hide('gameover-screen');
+      startGame();
+    } else {
+      document.querySelector('.gameover-title').textContent  = 'GAME OVER';
+      document.getElementById('gameover-reason').textContent = 'Payment could not be verified.';
+      show('mulligan-section');
+    }
+  } catch {
+    document.querySelector('.gameover-title').textContent  = 'GAME OVER';
+    document.getElementById('gameover-reason').textContent = 'Could not verify payment. Try again.';
+    show('mulligan-section');
+  }
+}
 
 /* ── Tab switch = game over ─────────────────────────────────────────── */
 document.addEventListener('visibilitychange', () => {
@@ -243,29 +285,17 @@ function playAgain() {
 async function buyMulligan() {
   const btn = document.querySelector('.btn-mulligan');
   btn.disabled = true;
-  btn.textContent = 'Processing…';
+  btn.textContent = 'Redirecting to payment…';
 
   try {
-    const res = await fetch('/api/mulligan', { method: 'POST' });
-    const { granted } = await res.json();
-    if (granted) {
-      // Restore one play and kick off a new game
-      const plays = getPlays();
-      plays.count = Math.max(0, plays.count - 1);
-      savePlays(plays);
-      finalMs    = null;
-      finalGreen = 0;
-      greenClicks = 0;
-      hide('gameover-screen');
-      hide('leaderboard-section');
-      startGame();
-    } else {
-      btn.disabled = false;
-      btn.textContent = '+ 1 Play — $1';
-    }
-  } catch {
+    const res = await fetch('/api/mulligan/checkout', { method: 'POST' });
+    const { url, error } = await res.json();
+    if (error) throw new Error(error);
+    window.location.href = url; // → Stripe hosted checkout
+  } catch (e) {
     btn.disabled = false;
     btn.textContent = '+ 1 Play — $1';
+    showError(e.message || 'Could not start checkout. Try again.');
   }
 }
 

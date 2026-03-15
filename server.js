@@ -2,6 +2,11 @@
 const express = require('express');
 const { MongoClient } = require('mongodb');
 const path = require('path');
+const Stripe = require('stripe');
+
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY)
+  : null;
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -98,9 +103,58 @@ app.get('/api/leaderboard', wrap(async (req, res) => {
   res.json({ scores });
 }));
 
-// Mulligan — grant one extra play (add Stripe payment check here later)
-app.post('/api/mulligan', wrap(async (req, res) => {
-  // TODO: verify payment via Stripe before granting
+// Mulligan step 1 — create a Stripe Checkout session
+app.post('/api/mulligan/checkout', wrap(async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: 'Payments not configured' });
+
+  const origin = req.headers.origin || `https://${req.get('host')}`;
+  const session = await stripe.checkout.sessions.create({
+    payment_method_types: ['card'],
+    line_items: [{
+      price_data: {
+        currency: 'usd',
+        product_data: {
+          name: '+ 1 Play',
+          description: "One extra play on Don't Click It",
+        },
+        unit_amount: 100, // $1.00
+      },
+      quantity: 1,
+    }],
+    mode: 'payment',
+    success_url: `${origin}/?mulligan={CHECKOUT_SESSION_ID}`,
+    cancel_url:  `${origin}/`,
+  });
+
+  res.json({ url: session.url });
+}));
+
+// Mulligan step 2 — verify payment and grant the play
+app.post('/api/mulligan/verify', wrap(async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: 'Payments not configured' });
+
+  const { sessionId } = req.body;
+  if (!sessionId || typeof sessionId !== 'string') {
+    return res.status(400).json({ error: 'Missing sessionId' });
+  }
+
+  // Prevent replaying the same session ID
+  const db = await getDb();
+  if (db) {
+    const used = await db.collection('mulligan_sessions').findOne({ sessionId });
+    if (used) return res.json({ granted: false, error: 'Session already used' });
+  }
+
+  const session = await stripe.checkout.sessions.retrieve(sessionId);
+  if (session.payment_status !== 'paid') {
+    return res.json({ granted: false });
+  }
+
+  // Mark session as used
+  if (db) {
+    await db.collection('mulligan_sessions').insertOne({ sessionId, usedAt: new Date() });
+  }
+
   res.json({ granted: true });
 }));
 
