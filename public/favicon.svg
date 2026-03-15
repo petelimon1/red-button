@@ -1,0 +1,15 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="btn" cx="38%" cy="32%" r="68%">
+      <stop offset="0%"   stop-color="#ff6b6b"/>
+      <stop offset="50%"  stop-color="#e53935"/>
+      <stop offset="100%" stop-color="#7f0000"/>
+    </radialGradient>
+  </defs>
+  <!-- Dark background -->
+  <rect width="64" height="64" rx="14" fill="#0a0a0a"/>
+  <!-- Red button -->
+  <circle cx="32" cy="31" r="22" fill="url(#btn)"/>
+  <!-- Shine -->
+  <ellipse cx="25" cy="23" rx="9" ry="6" fill="white" opacity="0.20"/>
+</svg>
