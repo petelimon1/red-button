@@ -469,6 +469,24 @@ html, body {
   padding: 32px;
 }
 
+.btn-show-more {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  background: transparent;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.btn-show-more:hover {
+  border-color: var(--red);
+  color: var(--text);
+}
+
 /* ── Challenge banner (game screen) ────────────────────────────────── */
 .challenge-banner {
   background: rgba(229,57,53,0.08);

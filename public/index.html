@@ -586,6 +586,35 @@ async function subscribeEmail() {
 }
 
 /* ── Leaderboard ────────────────────────────────────────────────────── */
+const LB_PAGE = 25;   // rows shown initially
+const LB_MAX  = 100;  // hard cap on total visible
+let   _lbScores = []; // cached for "show more"
+
+function renderRow(s, i) {
+  return `<div class="lb-row ${i === 0 ? 'lb-first' : ''}">
+    <span class="lb-rank">${medal(i)}</span>
+    <span class="lb-name">${escHtml(s.name)}${s.hasMulligan ? ' <span class="lb-flair" title="Bought a mulligan">💛</span>' : ''}</span>
+    <span class="lb-green">🟢 ${s.greenClicks || 0}</span>
+    <span class="lb-time">${s.timeFormatted}</span>
+  </div>`;
+}
+
+function renderLeaderboard(scores, showCount) {
+  const list = document.getElementById('lb-list');
+  const visible = scores.slice(0, showCount);
+  const remaining = Math.min(scores.length, LB_MAX) - showCount;
+  list.innerHTML = visible.map((s, i) => renderRow(s, i)).join('') +
+    (remaining > 0
+      ? `<button class="btn-show-more" onclick="showMoreScores()">Show ${Math.min(remaining, LB_PAGE)} more</button>`
+      : '');
+}
+
+function showMoreScores() {
+  const list = document.getElementById('lb-list');
+  const currentCount = list.querySelectorAll('.lb-row').length;
+  renderLeaderboard(_lbScores, currentCount + LB_PAGE);
+}
+
 async function loadLeaderboard() {
   const list = document.getElementById('lb-list');
   try {
@@ -595,13 +624,8 @@ async function loadLeaderboard() {
       list.innerHTML = '<p class="lb-empty">No scores yet. Be the first!</p>';
       return;
     }
-    list.innerHTML = scores.map((s, i) => `
-      <div class="lb-row ${i === 0 ? 'lb-first' : ''}">
-        <span class="lb-rank">${medal(i)}</span>
-        <span class="lb-name">${escHtml(s.name)}${s.hasMulligan ? ' <span class="lb-flair" title="Bought a mulligan">💛</span>' : ''}</span>
-        <span class="lb-green">🟢 ${s.greenClicks || 0}</span>
-        <span class="lb-time">${s.timeFormatted}</span>
-      </div>`).join('');
+    _lbScores = scores.slice(0, LB_MAX);
+    renderLeaderboard(_lbScores, LB_PAGE);
   } catch {
     list.innerHTML = '<p class="lb-empty">Could not load leaderboard.</p>';
   }
