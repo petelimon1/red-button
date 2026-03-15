@@ -322,6 +322,28 @@ html, body {
 
 .btn-share:hover { background: var(--red); color: #fff; }
 
+.share-panel {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: -8px;
+}
+
+.btn-share-opt {
+  padding: 8px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+  white-space: nowrap;
+}
+
+.btn-share-opt:hover { border-color: var(--muted); }
+
 /* ── Mulligan upsell ───────────────────────────────────────────────── */
 .mulligan-box {
   display: flex;

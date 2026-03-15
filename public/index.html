@@ -55,6 +55,11 @@
     </div>
 
     <button id="share-btn" class="btn-share hidden" onclick="shareScore()">🔴 Share your score</button>
+    <div id="share-panel" class="share-panel hidden">
+      <button class="btn-share-opt" onclick="shareTo('x')">𝕏 Post on X</button>
+      <button class="btn-share-opt" onclick="shareTo('facebook')">📘 Facebook</button>
+      <button class="btn-share-opt" id="copy-btn" onclick="copyScore()">📋 Copy link</button>
+    </div>
 
     <div id="submit-section">
       <p class="submit-label">Enter your name for the leaderboard:</p>
@@ -250,6 +255,7 @@ function endGame(ms, reason, noScore = false) {
     hide('lasted-section');
     hide('green-row');
     hide('share-btn');
+    hide('share-panel');
     hide('submit-section');
     hide('already-submitted');
   } else {
@@ -347,10 +353,40 @@ async function submitScore() {
 }
 
 /* ── Share ──────────────────────────────────────────────────────────── */
+const SITE_URL   = 'https://youarenotallowedtoclicktheredbutton.com';
+
 function shareScore() {
-  const text = `I lasted ${formatTime(finalMs)} without clicking the red button. Can you beat me? 🔴\nyouarenotallowedtoclicktheredbutton.com`;
-  const url  = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
-  window.open(url, '_blank', 'width=600,height=400,noopener,noreferrer');
+  const text = `I lasted ${formatTime(finalMs)} without clicking the red button. Can you beat me? 🔴`;
+
+  // Mobile: native share sheet (iMessage, WhatsApp, etc.)
+  if (navigator.share) {
+    navigator.share({ title: "Don't Click It", text, url: SITE_URL }).catch(() => {});
+    return;
+  }
+
+  // Desktop: reveal share options panel
+  show('share-panel');
+}
+
+function shareTo(platform) {
+  const text = `I lasted ${formatTime(finalMs)} without clicking the red button. Can you beat me? 🔴`;
+  const urls = {
+    x:        `https://twitter.com/intent/tweet?text=${encodeURIComponent(text + '\n' + SITE_URL)}`,
+    facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(SITE_URL)}`,
+  };
+  window.open(urls[platform], '_blank', 'width=600,height=400,noopener,noreferrer');
+}
+
+async function copyScore() {
+  const text = `I lasted ${formatTime(finalMs)} without clicking the red button. Can you beat me? 🔴\n${SITE_URL}`;
+  const btn  = document.getElementById('copy-btn');
+  try {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => { btn.textContent = '📋 Copy link'; }, 2000);
+  } catch {
+    btn.textContent = 'Copy failed';
+  }
 }
 
 /* ── Leaderboard ────────────────────────────────────────────────────── */
