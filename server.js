@@ -69,8 +69,9 @@ async function getDb() {
     _client = new MongoClient(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 5000,
       connectTimeoutMS:        5000,
-      maxIdleTimeMS:           55000, // close idle connections before Atlas drops them
-      maxPoolSize:             5,
+      maxIdleTimeMS:           30000, // close idle connections before Atlas drops them
+      maxPoolSize:             3,     // free tier: keep connections low
+      minPoolSize:             0,     // don't hold connections open when idle
     });
     await _client.connect();
     _db = _client.db('red_button');
@@ -90,8 +91,10 @@ function dbOp(promise, ms = 8000) {
     promise,
     new Promise((_, reject) =>
       setTimeout(() => {
+        const staleClient = _client;
         _db     = null;   // force reconnect on next request
         _client = null;
+        if (staleClient) staleClient.close(true).catch(() => {}); // release connections
         reject(new Error('Database timeout'));
       }, ms)
     ),
