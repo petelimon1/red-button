@@ -1,12 +1,25 @@
 <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <radialGradient id="bgGlow" cx="78%" cy="50%" r="45%">
-      <stop offset="0%" stop-color="#e53935" stop-opacity="0.3"/>
+    <!-- Background red haze around button -->
+    <radialGradient id="bgGlow" cx="78%" cy="50%" r="48%">
+      <stop offset="0%" stop-color="#e53935" stop-opacity="0.35"/>
       <stop offset="100%" stop-color="#0a0a0a" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="btnFill" cx="38%" cy="32%" r="65%">
-      <stop offset="0%" stop-color="#ff5252"/>
-      <stop offset="100%" stop-color="#b71c1c"/>
+    <!-- 3D button fill: bright top-left, dark bottom-right -->
+    <radialGradient id="btnFill" cx="36%" cy="30%" r="70%">
+      <stop offset="0%"   stop-color="#ff6b6b"/>
+      <stop offset="45%"  stop-color="#e53935"/>
+      <stop offset="100%" stop-color="#7f0000"/>
+    </radialGradient>
+    <!-- Inner shadow at bottom of button -->
+    <radialGradient id="btnShadow" cx="50%" cy="85%" r="55%">
+      <stop offset="0%"   stop-color="#000000" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Shine highlight -->
+    <radialGradient id="btnShine" cx="38%" cy="28%" r="45%">
+      <stop offset="0%"   stop-color="#ffffff" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
   </defs>
 
@@ -14,24 +27,35 @@
   <rect width="1200" height="630" fill="#0a0a0a"/>
   <rect width="1200" height="630" fill="url(#bgGlow)"/>
 
-  <!-- Red button outer glow -->
-  <circle cx="930" cy="315" r="240" fill="#e53935" opacity="0.08"/>
-  <circle cx="930" cy="315" r="210" fill="#e53935" opacity="0.08"/>
+  <!-- Outer ambient glow rings -->
+  <circle cx="930" cy="318" r="265" fill="#e53935" opacity="0.05"/>
+  <circle cx="930" cy="318" r="235" fill="#e53935" opacity="0.07"/>
+  <circle cx="930" cy="318" r="205" fill="#e53935" opacity="0.10"/>
 
-  <!-- Red button -->
-  <circle cx="930" cy="315" r="180" fill="url(#btnFill)"/>
+  <!-- Button base shadow (ground shadow) -->
+  <ellipse cx="930" cy="510" rx="175" ry="22" fill="#000" opacity="0.55"/>
 
-  <!-- Button highlight -->
-  <ellipse cx="885" cy="258" rx="65" ry="42" fill="white" opacity="0.13"/>
+  <!-- Button body -->
+  <circle cx="930" cy="310" r="185" fill="url(#btnFill)"/>
 
-  <!-- Title -->
-  <text x="80" y="215" font-family="'Arial Black','Helvetica Neue',Arial,sans-serif" font-size="104" font-weight="900" fill="#ffffff" letter-spacing="-2">Don't</text>
-  <text x="80" y="330" font-family="'Arial Black','Helvetica Neue',Arial,sans-serif" font-size="104" font-weight="900" fill="#ffffff" letter-spacing="-2">Click It.</text>
+  <!-- Inner shadow overlay (depth at bottom) -->
+  <circle cx="930" cy="310" r="185" fill="url(#btnShadow)"/>
 
-  <!-- Accent line -->
-  <rect x="80" y="358" width="56" height="5" fill="#e53935" rx="2"/>
+  <!-- Shine highlight (top-left gloss) -->
+  <circle cx="930" cy="310" r="185" fill="url(#btnShine)"/>
+
+  <!-- Specular glint -->
+  <ellipse cx="882" cy="248" rx="72" ry="46" fill="white" opacity="0.18"/>
+  <ellipse cx="866" cy="238" rx="32" ry="20" fill="white" opacity="0.12"/>
+
+  <!-- Title text -->
+  <text x="80" y="210" font-family="'Arial Black','Helvetica Neue',Arial,sans-serif" font-size="108" font-weight="900" fill="#ffffff" letter-spacing="-3">Don't</text>
+  <text x="80" y="328" font-family="'Arial Black','Helvetica Neue',Arial,sans-serif" font-size="108" font-weight="900" fill="#ffffff" letter-spacing="-3">Click It.</text>
+
+  <!-- Red accent bar -->
+  <rect x="80" y="357" width="60" height="6" fill="#e53935" rx="3"/>
 
   <!-- Subtext -->
   <text x="80" y="415" font-family="Arial,Helvetica,sans-serif" font-size="32" fill="#aaaaaa">How long can you resist?</text>
-  <text x="80" y="468" font-family="Arial,Helvetica,sans-serif" font-size="24" fill="#555555">youarenotallowedtoclicktheredbutton.com</text>
+  <text x="80" y="468" font-family="Arial,Helvetica,sans-serif" font-size="22" fill="#444444">youarenotallowedtoclicktheredbutton.com</text>
 </svg>
