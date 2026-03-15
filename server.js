@@ -1,5 +1,6 @@
 'use strict';
-const express = require('express');
+const express  = require('express');
+const rateLimit = require('express-rate-limit');
 const { MongoClient } = require('mongodb');
 const { randomBytes } = require('crypto');
 const path = require('path');
@@ -15,6 +16,47 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'redbutton2026';
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+/* ── Rate limiting ────────────────────────────────────────────────────── */
+// Score submit: max 10 submissions per IP per 10 minutes
+const submitLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many submissions. Try again in a few minutes.' },
+});
+
+// Leaderboard: max 60 reads per IP per minute (generous — just blocks bots)
+const leaderboardLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests.' },
+});
+
+// Mulligan / payment: max 5 attempts per IP per 15 minutes
+const mulliganLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many payment attempts. Try again later.' },
+});
+
+// Challenge creation: max 10 per IP per 10 minutes (same as submit)
+const challengeLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests.' },
+});
+
+/* ── Score validation constants ───────────────────────────────────────── */
+const MAX_TIME_MS   = 24 * 60 * 60 * 1000;  // 24 hours — clearly impossible
+const MAX_GREEN     = 100_000;               // 100k green clicks — clearly a bot
 
 /* ── MongoDB ──────────────────────────────────────────────────────────── */
 let _db = null;
@@ -66,9 +108,15 @@ function makeToken() { return randomBytes(16).toString('hex'); }
 /* ── Routes ───────────────────────────────────────────────────────────── */
 
 // Submit a score
-app.post('/api/submit', wrap(async (req, res) => {
+app.post('/api/submit', submitLimiter, wrap(async (req, res) => {
   const { name, timeMs, greenClicks, mulliganToken } = req.body;
   if (!name || typeof timeMs !== 'number' || timeMs < 0) {
+    return res.status(400).json({ error: 'Invalid submission' });
+  }
+  if (timeMs > MAX_TIME_MS) {
+    return res.status(400).json({ error: 'Invalid time' });
+  }
+  if (typeof greenClicks === 'number' && greenClicks > MAX_GREEN) {
     return res.status(400).json({ error: 'Invalid submission' });
   }
   const trimmed = name.trim().slice(0, 40);
@@ -106,7 +154,7 @@ app.post('/api/submit', wrap(async (req, res) => {
 }));
 
 // Get leaderboard — one entry per name (best time wins)
-app.get('/api/leaderboard', wrap(async (req, res) => {
+app.get('/api/leaderboard', leaderboardLimiter, wrap(async (req, res) => {
   const db = await getDb();
   let scores;
   if (db) {
@@ -146,7 +194,7 @@ app.get('/api/leaderboard', wrap(async (req, res) => {
 }));
 
 // Mulligan step 1 — create a Stripe Checkout session
-app.post('/api/mulligan/checkout', wrap(async (req, res) => {
+app.post('/api/mulligan/checkout', mulliganLimiter, wrap(async (req, res) => {
   if (!stripe) return res.status(503).json({ error: 'Payments not configured' });
 
   const origin = req.headers.origin || `https://${req.get('host')}`;
@@ -172,7 +220,7 @@ app.post('/api/mulligan/checkout', wrap(async (req, res) => {
 }));
 
 // Mulligan step 2 — verify payment, prevent replay, grant play + token
-app.post('/api/mulligan/verify', wrap(async (req, res) => {
+app.post('/api/mulligan/verify', mulliganLimiter, wrap(async (req, res) => {
   if (!stripe) return res.status(503).json({ error: 'Payments not configured' });
 
   const { sessionId } = req.body;
@@ -205,7 +253,7 @@ app.post('/api/mulligan/verify', wrap(async (req, res) => {
 }));
 
 // Create a challenge
-app.post('/api/challenge', wrap(async (req, res) => {
+app.post('/api/challenge', challengeLimiter, wrap(async (req, res) => {
   const { name, timeMs, greenClicks } = req.body;
   if (!name || typeof timeMs !== 'number' || timeMs < 0) {
     return res.status(400).json({ error: 'Invalid challenge' });
