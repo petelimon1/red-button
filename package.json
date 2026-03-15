@@ -1,6 +1,6 @@
 {
   "name": "red-button",
   "version": "1.0.0",
-  "scripts": { "start": "node server.js" },
+  "scripts": { "start": "node server.js", "icons": "node generate-icons.js" },
   "dependencies": { "express": "^4.18.2", "mongodb": "^6.8.0", "stripe": "^16.0.0" }
 }
