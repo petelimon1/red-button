@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
 const { MongoClient } = require('mongodb');
+const { randomBytes } = require('crypto');
 const path = require('path');
 const Stripe = require('stripe');
 
@@ -35,7 +36,9 @@ async function getDb() {
 }
 
 /* ── In-memory fallback ───────────────────────────────────────────────── */
-let _mem = [];
+let _mem            = [];
+let _challenges     = [];
+let _mulliganGrants = [];
 
 /* ── Helpers ──────────────────────────────────────────────────────────── */
 const wrap = fn => (req, res, next) => fn(req, res, next).catch(next);
@@ -55,22 +58,38 @@ function formatTime(ms) {
   return `${secs}.${String(centis).padStart(2,'0')}s`;
 }
 
+function makeId()    { return randomBytes(5).toString('hex'); }
+function makeToken() { return randomBytes(16).toString('hex'); }
+
 /* ── Routes ───────────────────────────────────────────────────────────── */
 
 // Submit a score
 app.post('/api/submit', wrap(async (req, res) => {
-  const { name, timeMs, greenClicks } = req.body;
+  const { name, timeMs, greenClicks, mulliganToken } = req.body;
   if (!name || typeof timeMs !== 'number' || timeMs < 0) {
     return res.status(400).json({ error: 'Invalid submission' });
   }
   const trimmed = name.trim().slice(0, 40);
   if (!trimmed) return res.status(400).json({ error: 'Name required' });
 
+  // Check if this submission was made possible by a paid mulligan
+  let hasMulligan = false;
+  if (mulliganToken && typeof mulliganToken === 'string') {
+    const db = await getDb();
+    if (db) {
+      const grant = await db.collection('mulligan_grants').findOne({ token: mulliganToken });
+      if (grant) hasMulligan = true;
+    } else {
+      hasMulligan = _mulliganGrants.some(g => g.token === mulliganToken);
+    }
+  }
+
   const entry = {
     name: trimmed,
     timeMs,
     timeFormatted: formatTime(timeMs),
     greenClicks: typeof greenClicks === 'number' ? Math.max(0, Math.floor(greenClicks)) : 0,
+    hasMulligan,
     submittedAt: new Date(),
     ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
   };
@@ -90,7 +109,7 @@ app.get('/api/leaderboard', wrap(async (req, res) => {
   let scores;
   if (db) {
     scores = await db.collection('scores')
-      .find({}, { projection: { _id: 0, name: 1, timeMs: 1, timeFormatted: 1, greenClicks: 1, submittedAt: 1 } })
+      .find({}, { projection: { _id: 0, name: 1, timeMs: 1, timeFormatted: 1, greenClicks: 1, hasMulligan: 1, submittedAt: 1 } })
       .sort({ timeMs: -1 })
       .limit(100)
       .toArray();
@@ -98,7 +117,8 @@ app.get('/api/leaderboard', wrap(async (req, res) => {
     scores = [..._mem]
       .sort((a, b) => b.timeMs - a.timeMs)
       .slice(0, 100)
-      .map(({ name, timeMs, timeFormatted, greenClicks, submittedAt }) => ({ name, timeMs, timeFormatted, greenClicks, submittedAt }));
+      .map(({ name, timeMs, timeFormatted, greenClicks, hasMulligan, submittedAt }) =>
+        ({ name, timeMs, timeFormatted, greenClicks, hasMulligan, submittedAt }));
   }
   res.json({ scores });
 }));
@@ -129,7 +149,7 @@ app.post('/api/mulligan/checkout', wrap(async (req, res) => {
   res.json({ url: session.url });
 }));
 
-// Mulligan step 2 — verify payment and grant the play
+// Mulligan step 2 — verify payment, prevent replay, grant play + token
 app.post('/api/mulligan/verify', wrap(async (req, res) => {
   if (!stripe) return res.status(503).json({ error: 'Payments not configured' });
 
@@ -150,12 +170,76 @@ app.post('/api/mulligan/verify', wrap(async (req, res) => {
     return res.json({ granted: false });
   }
 
-  // Mark session as used
+  // Mark session as used and generate a mulligan grant token
+  const token = makeToken();
   if (db) {
     await db.collection('mulligan_sessions').insertOne({ sessionId, usedAt: new Date() });
+    await db.collection('mulligan_grants').insertOne({ token, createdAt: new Date() });
+  } else {
+    _mulliganGrants.push({ token });
   }
 
-  res.json({ granted: true });
+  res.json({ granted: true, token });
+}));
+
+// Create a challenge
+app.post('/api/challenge', wrap(async (req, res) => {
+  const { name, timeMs, greenClicks } = req.body;
+  if (!name || typeof timeMs !== 'number' || timeMs < 0) {
+    return res.status(400).json({ error: 'Invalid challenge' });
+  }
+  const id  = makeId();
+  const doc = {
+    id,
+    name: String(name).trim().slice(0, 40),
+    timeMs,
+    timeFormatted: formatTime(timeMs),
+    greenClicks: typeof greenClicks === 'number' ? Math.max(0, Math.floor(greenClicks)) : 0,
+    createdAt: new Date(),
+  };
+  const db = await getDb();
+  if (db) {
+    await db.collection('challenges').insertOne(doc);
+  } else {
+    _challenges.push(doc);
+  }
+  res.json({ id });
+}));
+
+// Get a challenge
+app.get('/api/challenge/:id', wrap(async (req, res) => {
+  const { id } = req.params;
+  const db = await getDb();
+  let doc;
+  if (db) {
+    doc = await db.collection('challenges').findOne(
+      { id },
+      { projection: { _id: 0, id: 1, name: 1, timeMs: 1, timeFormatted: 1, greenClicks: 1 } }
+    );
+  } else {
+    doc = _challenges.find(c => c.id === id) || null;
+    if (doc) doc = { id: doc.id, name: doc.name, timeMs: doc.timeMs, timeFormatted: doc.timeFormatted, greenClicks: doc.greenClicks };
+  }
+  if (!doc) return res.status(404).json({ error: 'Challenge not found' });
+  res.json(doc);
+}));
+
+// Subscribe for beat notifications
+app.post('/api/subscribe', wrap(async (req, res) => {
+  const { email, name, timeMs } = req.body;
+  if (!email || typeof email !== 'string' || !email.includes('@')) {
+    return res.status(400).json({ error: 'Invalid email' });
+  }
+  const db = await getDb();
+  if (db) {
+    await db.collection('subscribers').insertOne({
+      email: email.trim().slice(0, 200),
+      name: name ? String(name).trim().slice(0, 40) : null,
+      timeMs: typeof timeMs === 'number' ? timeMs : null,
+      createdAt: new Date(),
+    });
+  }
+  res.json({ success: true });
 }));
 
 // Admin: clear a score by name

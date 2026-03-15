@@ -25,6 +25,9 @@
 <!-- ── GAME SCREEN ─────────────────────────────────────────────────── -->
 <div id="game-screen" class="screen hidden">
   <div class="game-wrap">
+    <!-- Challenge banner: shown when arriving via a challenge link -->
+    <div id="challenge-banner" class="challenge-banner hidden"></div>
+
     <div id="timer" class="timer">0.00s</div>
     <div id="plays-remaining" class="plays-remaining"></div>
 
@@ -46,6 +49,9 @@
 <!-- ── GAME OVER SCREEN ────────────────────────────────────────────── -->
 <div id="gameover-screen" class="screen hidden">
   <div class="gameover-wrap">
+    <!-- Challenge result banner -->
+    <div id="challenge-result" class="challenge-result hidden"></div>
+
     <div class="gameover-title">GAME OVER</div>
     <div class="gameover-reason" id="gameover-reason">You clicked the button.</div>
 
@@ -76,6 +82,25 @@
       <p class="already-text">Score submitted ✓</p>
     </div>
 
+    <!-- Challenge link (shown after score is submitted) -->
+    <div id="challenge-section" class="hidden challenge-section">
+      <button id="challenge-btn" class="btn-challenge" onclick="shareChallenge()">⚔️ Challenge a friend</button>
+      <div id="challenge-link-row" class="challenge-link-row hidden">
+        <input id="challenge-url-input" class="challenge-url-input" readonly />
+        <button id="challenge-copy-btn" class="btn-share-opt" onclick="copyChallengeLink()">📋 Copy</button>
+      </div>
+    </div>
+
+    <!-- Email capture (shown after submit) -->
+    <div id="email-section" class="hidden email-section">
+      <p class="email-label">🔔 Notify me if someone beats my score:</p>
+      <div class="submit-row">
+        <input id="email-input" class="name-input" type="email" maxlength="200" placeholder="your@email.com" />
+        <button id="email-btn" class="btn-submit" onclick="subscribeEmail()">Notify me</button>
+      </div>
+      <p id="email-status" class="already-text hidden"></p>
+    </div>
+
     <!-- Play again (shown when plays remain) -->
     <div id="play-again-wrap">
       <button class="btn-play-again" onclick="playAgain()">
@@ -101,17 +126,22 @@
 
 <script>
 /* ── Constants ─────────────────────────────────────────────────────── */
-const SESSION_KEY = 'rb_start';  // sessionStorage: game start timestamp
-const PLAYS_KEY   = 'rb_plays';  // localStorage:   { date, count }
-const MAX_PLAYS   = 3;
+const SESSION_KEY       = 'rb_start';        // sessionStorage: game start timestamp
+const PLAYS_KEY         = 'rb_plays';        // localStorage:   { date, count }
+const MULLIGAN_TOKEN_KEY = 'rb_mul_token';   // localStorage:   mulligan grant token
+const MAX_PLAYS         = 3;
+const SITE_URL          = 'https://youarenotallowedtoclicktheredbutton.com';
 
 /* ── State ─────────────────────────────────────────────────────────── */
-let timerInterval = null;
-let startTime     = null;
-let finalMs       = null;
-let greenClicks   = 0;
-let finalGreen    = 0;
-let submitted     = false;
+let timerInterval  = null;
+let startTime      = null;
+let finalMs        = null;
+let greenClicks    = 0;
+let finalGreen     = 0;
+let submitted      = false;
+let challengeId    = null;   // ID of challenge created after submit
+let challengeTarget = null;  // { name, timeMs, timeFormatted } from incoming challenge link
+let submittedName  = '';     // name used when submitting score
 
 /* ── Daily plays helpers ────────────────────────────────────────────── */
 function todayStr() {
@@ -136,13 +166,21 @@ function playsLeft() {
 
 /* ── Init ──────────────────────────────────────────────────────────── */
 window.addEventListener('load', async () => {
+  const params = new URLSearchParams(window.location.search);
+
   // Returning from Stripe checkout?
-  const params    = new URLSearchParams(window.location.search);
   const sessionId = params.get('mulligan');
   if (sessionId) {
     window.history.replaceState({}, '', '/');
     await handleMulliganReturn(sessionId);
     return;
+  }
+
+  // Arriving via a challenge link?
+  const cid = params.get('c');
+  if (cid) {
+    window.history.replaceState({}, '', '/');
+    await loadChallengeTarget(cid);
   }
 
   const existingStart = sessionStorage.getItem(SESSION_KEY);
@@ -154,7 +192,6 @@ window.addEventListener('load', async () => {
   }
 
   if (playsLeft() === 0) {
-    // Out of plays for today
     endGame(0, "You've used all 3 free plays today.", true);
     return;
   }
@@ -162,12 +199,32 @@ window.addEventListener('load', async () => {
   startGame();
 });
 
+async function loadChallengeTarget(cid) {
+  try {
+    const res = await fetch(`/api/challenge/${cid}`);
+    if (!res.ok) return;
+    challengeTarget = await res.json();
+  } catch {
+    // Silently ignore — just play without the banner
+  }
+}
+
+function showChallengeBanners() {
+  if (!challengeTarget) return;
+  const txt = `⚔️ <strong>${escHtml(challengeTarget.name)}</strong> lasted <strong>${escHtml(challengeTarget.timeFormatted)}</strong>. Can you beat them?`;
+  const gameBanner = document.getElementById('challenge-banner');
+  gameBanner.innerHTML = txt;
+  gameBanner.classList.remove('hidden');
+}
+
 async function handleMulliganReturn(sessionId) {
   show('gameover-screen');
   document.querySelector('.gameover-title').textContent  = '⏳';
   document.getElementById('gameover-reason').textContent = 'Verifying payment…';
   hide('lasted-section'); hide('green-row');
+  hide('share-btn');      hide('share-panel');
   hide('submit-section'); hide('already-submitted');
+  hide('challenge-section'); hide('email-section');
   hide('play-again-wrap'); hide('mulligan-section');
 
   try {
@@ -176,9 +233,10 @@ async function handleMulliganReturn(sessionId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId }),
     });
-    const { granted } = await res.json();
+    const { granted, token } = await res.json();
 
     if (granted) {
+      if (token) localStorage.setItem(MULLIGAN_TOKEN_KEY, token);
       const plays = getPlays();
       plays.count = Math.max(0, plays.count - 1);
       savePlays(plays);
@@ -213,6 +271,8 @@ function startGame() {
   startTime   = Date.now();
   greenClicks = 0;
   submitted   = false;
+  challengeId = null;
+  submittedName = '';
   sessionStorage.setItem(SESSION_KEY, startTime);
 
   document.getElementById('green-count').textContent = '0';
@@ -222,6 +282,8 @@ function startGame() {
   show('game-screen');
   hide('gameover-screen');
   hide('leaderboard-section');
+
+  showChallengeBanners();
 
   timerInterval = setInterval(() => {
     document.getElementById('timer').textContent = formatTime(Date.now() - startTime);
@@ -235,7 +297,6 @@ function clickGreen() {
 }
 
 // Wire green button: touchstart for mobile (no delay), click for desktop
-// The `registered` flag prevents touchstart + click both firing on the same tap
 (function () {
   const btn = document.getElementById('green-btn');
   let touchFired = false;
@@ -245,7 +306,7 @@ function clickGreen() {
     clickGreen();
   }, { passive: false });
   btn.addEventListener('click', () => {
-    if (touchFired) { touchFired = false; return; } // already handled by touchstart
+    if (touchFired) { touchFired = false; return; }
     clickGreen();
   });
 }());
@@ -268,14 +329,30 @@ function endGame(ms, reason, noScore = false) {
 
   document.getElementById('gameover-reason').textContent = reason;
 
+  // Challenge result comparison
+  const resultEl = document.getElementById('challenge-result');
+  if (challengeTarget && !noScore && ms > 0) {
+    if (ms > challengeTarget.timeMs) {
+      resultEl.innerHTML = `🎉 You beat <strong>${escHtml(challengeTarget.name)}</strong>'s ${escHtml(challengeTarget.timeFormatted)}!`;
+      resultEl.className = 'challenge-result challenge-result--won';
+    } else {
+      resultEl.innerHTML = `😬 <strong>${escHtml(challengeTarget.name)}</strong> lasted ${escHtml(challengeTarget.timeFormatted)}. So close!`;
+      resultEl.className = 'challenge-result challenge-result--lost';
+    }
+    resultEl.classList.remove('hidden');
+  } else {
+    resultEl.classList.add('hidden');
+  }
+
   if (noScore) {
-    // Out-of-plays startup state — hide score rows
     hide('lasted-section');
     hide('green-row');
     hide('share-btn');
     hide('share-panel');
     hide('submit-section');
     hide('already-submitted');
+    hide('challenge-section');
+    hide('email-section');
   } else {
     show('lasted-section');
     show('green-row');
@@ -285,6 +362,8 @@ function endGame(ms, reason, noScore = false) {
     if (!submitted) {
       show('submit-section');
       hide('already-submitted');
+      hide('challenge-section');
+      hide('email-section');
     }
   }
 
@@ -298,7 +377,6 @@ function endGame(ms, reason, noScore = false) {
   } else {
     hide('play-again-wrap');
     show('mulligan-section');
-    // Reset mulligan button in case it was previously clicked
     const btn = document.querySelector('.btn-mulligan');
     btn.disabled = false;
     btn.textContent = '+ 1 Play — $1';
@@ -314,8 +392,8 @@ function playAgain() {
     return;
   }
   sessionStorage.removeItem(SESSION_KEY);
-  finalMs    = null;
-  finalGreen = 0;
+  finalMs     = null;
+  finalGreen  = 0;
   greenClicks = 0;
   hide('gameover-screen');
   hide('leaderboard-section');
@@ -331,7 +409,7 @@ async function buyMulligan() {
     const res = await fetch('/api/mulligan/checkout', { method: 'POST' });
     const { url, error } = await res.json();
     if (error) throw new Error(error);
-    window.location.href = url; // → Stripe hosted checkout
+    window.location.href = url;
   } catch (e) {
     btn.disabled = false;
     btn.textContent = '+ 1 Play — $1';
@@ -350,17 +428,37 @@ async function submitScore() {
   btn.disabled = true;
   btn.textContent = 'Submitting…';
 
+  const mulliganToken = localStorage.getItem(MULLIGAN_TOKEN_KEY) || undefined;
+
   try {
     const res = await fetch('/api/submit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, timeMs: finalMs, greenClicks: finalGreen }),
+      body: JSON.stringify({ name, timeMs: finalMs, greenClicks: finalGreen, mulliganToken }),
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Submit failed');
 
+    // Clear the mulligan token — it's been used
+    localStorage.removeItem(MULLIGAN_TOKEN_KEY);
+    submittedName = name;
+
     hide('submit-section');
     show('already-submitted');
+
+    // Create a challenge link in the background, then reveal sections
+    try {
+      const cr = await fetch('/api/challenge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, timeMs: finalMs, greenClicks: finalGreen }),
+      });
+      const cj = await cr.json();
+      if (cj.id) challengeId = cj.id;
+    } catch { /* challenge creation failure is non-fatal */ }
+
+    show('challenge-section');
+    show('email-section');
     loadLeaderboard();
   } catch (e) {
     submitted = false;
@@ -370,33 +468,65 @@ async function submitScore() {
   }
 }
 
-/* ── Share ──────────────────────────────────────────────────────────── */
-const SITE_URL   = 'https://youarenotallowedtoclicktheredbutton.com';
+/* ── Challenge links ────────────────────────────────────────────────── */
+function getChallengeUrl() {
+  if (!challengeId) return SITE_URL;
+  return `${SITE_URL}/?c=${challengeId}`;
+}
 
-function shareScore() {
+async function shareChallenge() {
+  const url  = getChallengeUrl();
   const text = `I lasted ${formatTime(finalMs)} without clicking the red button. Can you beat me? 🔴`;
 
-  // Mobile: native share sheet (iMessage, WhatsApp, etc.)
   if (navigator.share) {
-    navigator.share({ title: "Don't Click It", text, url: SITE_URL }).catch(() => {});
+    navigator.share({ title: "Don't Click It — Beat My Score", text, url }).catch(() => {});
     return;
   }
 
-  // Desktop: reveal share options panel
+  // Desktop: show the challenge URL inline
+  const input = document.getElementById('challenge-url-input');
+  input.value = url;
+  show('challenge-link-row');
+}
+
+async function copyChallengeLink() {
+  const url = getChallengeUrl();
+  const btn = document.getElementById('challenge-copy-btn');
+  try {
+    await navigator.clipboard.writeText(url);
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => { btn.textContent = '📋 Copy'; }, 2000);
+  } catch {
+    btn.textContent = 'Failed';
+  }
+}
+
+/* ── Share (general score share, pre-submit) ────────────────────────── */
+function shareScore() {
+  const url  = getChallengeUrl();
+  const text = `I lasted ${formatTime(finalMs)} without clicking the red button. Can you beat me? 🔴`;
+
+  if (navigator.share) {
+    navigator.share({ title: "Don't Click It", text, url }).catch(() => {});
+    return;
+  }
+
   show('share-panel');
 }
 
 function shareTo(platform) {
+  const url  = getChallengeUrl();
   const text = `I lasted ${formatTime(finalMs)} without clicking the red button. Can you beat me? 🔴`;
   const urls = {
-    x:        `https://twitter.com/intent/tweet?text=${encodeURIComponent(text + '\n' + SITE_URL)}`,
-    facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(SITE_URL)}`,
+    x:        `https://twitter.com/intent/tweet?text=${encodeURIComponent(text + '\n' + url)}`,
+    facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
   };
   window.open(urls[platform], '_blank', 'width=600,height=400,noopener,noreferrer');
 }
 
 async function copyScore() {
-  const text = `I lasted ${formatTime(finalMs)} without clicking the red button. Can you beat me? 🔴\n${SITE_URL}`;
+  const url  = getChallengeUrl();
+  const text = `I lasted ${formatTime(finalMs)} without clicking the red button. Can you beat me? 🔴\n${url}`;
   const btn  = document.getElementById('copy-btn');
   try {
     await navigator.clipboard.writeText(text);
@@ -404,6 +534,40 @@ async function copyScore() {
     setTimeout(() => { btn.textContent = '📋 Copy link'; }, 2000);
   } catch {
     btn.textContent = 'Copy failed';
+  }
+}
+
+/* ── Email notification subscription ───────────────────────────────── */
+async function subscribeEmail() {
+  const email = document.getElementById('email-input').value.trim();
+  if (!email || !email.includes('@')) {
+    document.getElementById('email-status').textContent = 'Please enter a valid email.';
+    show('email-status');
+    return;
+  }
+
+  const btn = document.getElementById('email-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  try {
+    const res = await fetch('/api/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, name: submittedName, timeMs: finalMs }),
+    });
+    if (!res.ok) throw new Error();
+
+    hide('email-section');
+    const statusEl = document.getElementById('email-status');
+    statusEl.textContent = "✓ You'll be notified if someone beats your score!";
+    statusEl.classList.remove('hidden');
+    statusEl.style.display = 'block';
+  } catch {
+    btn.disabled = false;
+    btn.textContent = 'Notify me';
+    document.getElementById('email-status').textContent = 'Could not save. Try again.';
+    show('email-status');
   }
 }
 
@@ -420,7 +584,7 @@ async function loadLeaderboard() {
     list.innerHTML = scores.map((s, i) => `
       <div class="lb-row ${i === 0 ? 'lb-first' : ''}">
         <span class="lb-rank">${medal(i)}</span>
-        <span class="lb-name">${escHtml(s.name)}</span>
+        <span class="lb-name">${escHtml(s.name)}${s.hasMulligan ? ' <span class="lb-flair" title="Bought a mulligan">💛</span>' : ''}</span>
         <span class="lb-green">🟢 ${s.greenClicks || 0}</span>
         <span class="lb-time">${s.timeFormatted}</span>
       </div>`).join('');
@@ -432,8 +596,8 @@ async function loadLeaderboard() {
 /* ── Helpers ────────────────────────────────────────────────────────── */
 function formatTime(ms) {
   const totalSec = Math.floor(ms / 1000);
-  const mins  = Math.floor(totalSec / 60);
-  const secs  = totalSec % 60;
+  const mins   = Math.floor(totalSec / 60);
+  const secs   = totalSec % 60;
   const centis = Math.floor((ms % 1000) / 10);
   if (mins > 0) return `${mins}m ${secs}.${String(centis).padStart(2,'0')}s`;
   return `${secs}.${String(centis).padStart(2,'0')}s`;
