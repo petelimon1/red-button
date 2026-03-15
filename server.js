@@ -25,6 +25,8 @@ async function getDb() {
     const client = new MongoClient(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 5000,
       connectTimeoutMS: 5000,
+      socketTimeoutMS: 10000,
+      maxIdleTimeMS: 60000,
     });
     await client.connect();
     _db = client.db('red_button');
@@ -103,18 +105,38 @@ app.post('/api/submit', wrap(async (req, res) => {
   res.json({ success: true, timeFormatted: entry.timeFormatted });
 }));
 
-// Get leaderboard
+// Get leaderboard — one entry per name (best time wins)
 app.get('/api/leaderboard', wrap(async (req, res) => {
   const db = await getDb();
   let scores;
   if (db) {
-    scores = await db.collection('scores')
-      .find({}, { projection: { _id: 0, name: 1, timeMs: 1, timeFormatted: 1, greenClicks: 1, hasMulligan: 1, submittedAt: 1 } })
-      .sort({ timeMs: -1 })
-      .limit(100)
-      .toArray();
+    // Sort first so $first picks the best-time doc for each player
+    scores = await db.collection('scores').aggregate([
+      { $sort: { timeMs: -1 } },
+      { $group: {
+        _id: '$name',
+        name:          { $first: '$name' },
+        timeMs:        { $first: '$timeMs' },
+        timeFormatted: { $first: '$timeFormatted' },
+        greenClicks:   { $first: '$greenClicks' },
+        hasMulligan:   { $max:   '$hasMulligan' },  // true if they EVER bought one
+        submittedAt:   { $first: '$submittedAt' },
+      }},
+      { $sort: { timeMs: -1 } },
+      { $limit: 100 },
+      { $project: { _id: 0 } },
+    ]).toArray();
   } else {
-    scores = [..._mem]
+    // In-memory: best time per name
+    const best = {};
+    for (const s of _mem) {
+      if (!best[s.name] || s.timeMs > best[s.name].timeMs) {
+        best[s.name] = { ...s };
+      }
+      // Propagate mulligan flair even from non-best plays
+      if (s.hasMulligan) best[s.name].hasMulligan = true;
+    }
+    scores = Object.values(best)
       .sort((a, b) => b.timeMs - a.timeMs)
       .slice(0, 100)
       .map(({ name, timeMs, timeFormatted, greenClicks, hasMulligan, submittedAt }) =>

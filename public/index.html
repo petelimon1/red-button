@@ -417,6 +417,17 @@ async function buyMulligan() {
   }
 }
 
+/* ── Fetch with timeout ─────────────────────────────────────────────── */
+async function fetchWithTimeout(url, opts, ms = 12000) {
+  const ctrl = new AbortController();
+  const tid  = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
 /* ── Score submission ───────────────────────────────────────────────── */
 async function submitScore() {
   const name = document.getElementById('name-input').value.trim();
@@ -431,7 +442,7 @@ async function submitScore() {
   const mulliganToken = localStorage.getItem(MULLIGAN_TOKEN_KEY) || undefined;
 
   try {
-    const res = await fetch('/api/submit', {
+    const res = await fetchWithTimeout('/api/submit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, timeMs: finalMs, greenClicks: finalGreen, mulliganToken }),
@@ -448,11 +459,11 @@ async function submitScore() {
 
     // Create a challenge link in the background, then reveal sections
     try {
-      const cr = await fetch('/api/challenge', {
+      const cr = await fetchWithTimeout('/api/challenge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, timeMs: finalMs, greenClicks: finalGreen }),
-      });
+      }, 8000);
       const cj = await cr.json();
       if (cj.id) challengeId = cj.id;
     } catch { /* challenge creation failure is non-fatal */ }
@@ -464,7 +475,10 @@ async function submitScore() {
     submitted = false;
     btn.disabled = false;
     btn.textContent = 'Submit';
-    showError(e.message);
+    const msg = e.name === 'AbortError'
+      ? 'Request timed out. Check your connection and try again.'
+      : (e.message || 'Submit failed. Try again.');
+    showError(msg);
   }
 }
 
